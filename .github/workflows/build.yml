@@ -1,0 +1,60 @@
+name: Build XVid360
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Checkout del proyecto
+        uses: actions/checkout@v4
+        with:
+          path: app
+
+      - name: Checkout de XSDK
+        uses: actions/checkout@v4
+        with:
+          repository: xenosworks/xsdk
+          ref: 9e6de98f6b5d737bce0fecd2864edae94bdd2637
+          submodules: recursive
+          path: xsdk
+
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libgmp-dev libmpfr-dev libmpc-dev \
+            texinfo flex bison m4 curl xz-utils patch python3 cmake ninja-build
+
+      - name: Cache del toolchain
+        id: tc
+        uses: actions/cache@v4
+        with:
+          path: ~/xsdk-gcc
+          key: xsdk-gcc-${{ hashFiles('xsdk/tools/toolchain/**') }}
+
+      - name: Construir el toolchain (solo la primera vez)
+        if: steps.tc.outputs.cache-hit != 'true'
+        run: bash xsdk/tools/toolchain/build.sh
+
+      - name: Construir libxsdk
+        working-directory: xsdk
+        run: |
+          export PATH="$HOME/xsdk-gcc/bin:$PATH"
+          make build/libxsdk.a || make
+
+      - name: Compilar XVid360
+        run: |
+          export PATH="$HOME/xsdk-gcc/bin:$PATH"
+          cmake -S app -B app/build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$GITHUB_WORKSPACE/xsdk/cmake/xsdk.cmake"
+          cmake --build app/build
+
+      - name: Subir el .xex
+        uses: actions/upload-artifact@v4
+        with:
+          name: XVid360-xex
+          path: app/build/XVid360.xex
